@@ -98,7 +98,7 @@ import org.checkerframework.checker.nullness.qual.EnsuresNonNullIf;
  *       DefaultMediaMetadataProvider} is used.
  * </ul>
  */
-public final class MediaSessionConnector {
+public class MediaSessionConnector {
 
   static {
     ExoPlayerLibraryInfo.registerModule("goog.exo.mediasession");
@@ -737,6 +737,10 @@ public final class MediaSessionConnector {
     mediaSession.setMetadata(metadata);
   }
 
+  public Bundle getPlaybackStateExtras() {
+    return new Bundle();
+  }
+
   /**
    * Updates the playback state of the media session.
    *
@@ -794,6 +798,7 @@ public final class MediaSessionConnector {
             : MediaSessionCompat.QueueItem.UNKNOWN_ID;
     float playbackSpeed = player.getPlaybackParameters().speed;
     extras.putFloat(EXTRAS_SPEED, playbackSpeed);
+    extras.putAll(getPlaybackStateExtras());
     float sessionPlaybackSpeed = player.isPlaying() ? playbackSpeed : 0f;
     @Nullable MediaItem currentMediaItem = player.getCurrentMediaItem();
     if (currentMediaItem != null && !MediaItem.DEFAULT_MEDIA_ID.equals(currentMediaItem.mediaId)) {
