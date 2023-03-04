@@ -1,5 +1,120 @@
 # Release notes
 
+### 2.18.4 (2023-03-02)
+
+This release corresponds to the
+[AndroidX Media3 1.0.0-rc02 release](https://github.com/androidx/media/releases/tag/1.0.0-rc02).
+
+*   Core library:
+    *   Fix network type detection on API 33
+        ([#10970](https://github.com/google/ExoPlayer/issues/10970)).
+    *   Fix `NullPointerException` when calling `ExoPlayer.isTunnelingEnabled`
+        ([#10977](https://github.com/google/ExoPlayer/issues/10977)).
+*   Downloads:
+    *   Make the maximum difference of the start time of two segments to be
+        merged configurable in `SegmentDownloader` and subclasses
+        ([#248](https://github.com/androidx/media/pull/248)).
+*   Audio:
+    *   Fix broken gapless MP3 playback on Samsung devices
+        ([#8594](https://github.com/google/ExoPlayer/issues/8594)).
+    *   Fix bug where playback speeds set immediately after disabling audio may
+        be overridden by a previous speed change
+        ([#10882](https://github.com/google/ExoPlayer/issues/10882)).
+*   Video:
+    *   Map HEVC HDR10 format to `HEVCProfileMain10HDR10` instead of
+        `HEVCProfileMain10`.
+    *   Add workaround for a device issue on Chromecast with Google TV and
+        Lenovo M10 FHD Plus that causes 60fps AVC streams to be marked as
+        unsupported
+        ([#10898](https://github.com/google/ExoPlayer/issues/10898)).
+    *   Fix frame release performance issues when playing media with a frame
+        rate far higher than the screen refresh rate.
+*   Cast:
+    *   Fix transient `STATE_IDLE` when transitioning between media items
+        ([#245](https://github.com/androidx/media/issues/245)).
+*   RTSP:
+    *   Catch the IllegalArgumentException thrown in parsing of invalid RTSP
+        Describe response messages
+        ([#10971](https://github.com/google/ExoPlayer/issues/10971)).
+*   IMA extension:
+    *   Fix a bug which prevented DAI streams without any ads from starting
+        because the first (and in the case without ads the only) `LOADED` event
+        wasn't received.
+
+### 2.18.3 (2023-02-16)
+
+This release corresponds to the
+[AndroidX Media3 1.0.0-rc01 release](https://github.com/androidx/media/releases/tag/1.0.0-rc01).
+
+*   Core library:
+    *   Tweak the renderer's decoder ordering logic to uphold the
+        `MediaCodecSelector`'s preferences, even if a decoder reports it may not
+        be able to play the media performantly. For example with default
+        selector, hardware decoder with only functional support will be
+        preferred over software decoder that fully supports the format
+        ([#10604](https://github.com/google/ExoPlayer/issues/10604)).
+    *   Add `ExoPlayer.Builder.setPlaybackLooper` that sets a pre-existing
+        playback thread for a new ExoPlayer instance.
+    *   Allow download manager helpers to be cleared
+        ([#10776](https://github.com/google/ExoPlayer/issues/10776)).
+    *   Add parameter to `BasePlayer.seekTo` to also indicate the command used
+        for seeking.
+    *   Use theme when loading drawables on API 21+
+        ([#220](https://github.com/androidx/media/issues/220)).
+    *   Add `ConcatenatingMediaSource2` that allows combining multiple media
+        items into a single window
+        ([#247](https://github.com/androidx/media/issues/247)).
+*   Extractors:
+    *   Throw a `ParserException` instead of a `NullPointerException` if the
+        sample table (stbl) is missing a required sample description (stsd) when
+        parsing trak atoms.
+    *   Correctly skip samples when seeking directly to a sync frame in fMP4
+        ([#10941](https://github.com/google/ExoPlayer/issues/10941)).
+*   Audio:
+    *   Use the compressed audio format bitrate to calculate the min buffer size
+        for `AudioTrack` in direct playbacks (passthrough).
+*   Text:
+    *   Fix `TextRenderer` passing an invalid (negative) index to
+        `Subtitle.getEventTime` if a subtitle file contains no cues.
+    *   SubRip: Add support for UTF-16 files if they start with a byte order
+        mark.
+*   Metadata:
+    *   Parse multiple null-separated values from ID3 frames, as permitted by
+        ID3 v2.4.
+    *   Add `MediaMetadata.mediaType` to denote the type of content or the type
+        of folder described by the metadata.
+    *   Add `MediaMetadata.isBrowsable` as a replacement for
+        `MediaMetadata.folderType`. The folder type will be deprecated in the
+        next release.
+*   DASH:
+    *   Add full parsing for image adaptation sets, including tile counts
+        ([#3752](https://github.com/google/ExoPlayer/issues/3752)).
+*   UI:
+    *   Fix the deprecated
+        `StyledPlayerView.setControllerVisibilityListener(StyledPlayerControlView.VisibilityListener)`
+        to ensure visibility changes are passed to the registered listener
+        ([#229](https://github.com/androidx/media/issues/229)).
+    *   Fix the ordering of the center player controls in `StyledPlayerView`
+        when using a right-to-left (RTL) layout
+        ([#227](https://github.com/androidx/media/issues/227)).
+*   Cast extension:
+    *   Bump Cast SDK version to 21.2.0.
+*   IMA extension:
+    *   Remove player listener of the `ImaServerSideAdInsertionMediaSource` on
+        the application thread to avoid threading issues.
+    *   Add a property `focusSkipButtonWhenAvailable` to the
+        `ImaServerSideAdInsertionMediaSource.AdsLoader.Builder` to request
+        focusing the skip button on TV devices and set it to true by default.
+    *   Add a method `focusSkipButton()` to the
+        `ImaServerSideAdInsertionMediaSource.AdsLoader` to programmatically
+        request to focus the skip button.
+    *   Fix a bug which prevented playback from starting for a DAI stream
+        without any ads.
+    *   Bump IMA SDK version to 3.29.0.
+*   Demo app:
+    *   Request notification permission for download notifications at runtime
+        ([#10884](https://github.com/google/ExoPlayer/issues/10884)).
+
 ### 2.18.2 (2022-11-22)
 
 This release corresponds to the

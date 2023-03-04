@@ -243,7 +243,8 @@ public final class MediaCodecInfo {
   }
 
   /**
-   * Returns whether the decoder may support decoding the given {@code format}.
+   * Returns whether the decoder may support decoding the given {@code format} both functionally and
+   * performantly.
    *
    * @param format The input media format.
    * @return Whether the decoder may support decoding the given {@code format}.
@@ -254,7 +255,7 @@ public final class MediaCodecInfo {
       return false;
     }
 
-    if (!isCodecProfileAndLevelSupported(format)) {
+    if (!isCodecProfileAndLevelSupported(format, /* checkPerformanceCapabilities= */ true)) {
       return false;
     }
 
@@ -281,15 +282,24 @@ public final class MediaCodecInfo {
     }
   }
 
+  /**
+   * Returns whether the decoder may functionally support decoding the given {@code format}.
+   *
+   * @param format The input media format.
+   * @return Whether the decoder may functionally support decoding the given {@code format}.
+   */
+  public boolean isFormatFunctionallySupported(Format format) {
+    return isSampleMimeTypeSupported(format)
+        && isCodecProfileAndLevelSupported(format, /* checkPerformanceCapabilities= */ false);
+  }
+
   private boolean isSampleMimeTypeSupported(Format format) {
     return mimeType.equals(format.sampleMimeType)
         || mimeType.equals(MediaCodecUtil.getAlternativeCodecMimeType(format));
   }
 
-  private boolean isCodecProfileAndLevelSupported(Format format) {
-    if (format.codecs == null) {
-      return true;
-    }
+  private boolean isCodecProfileAndLevelSupported(
+      Format format, boolean checkPerformanceCapabilities) {
     Pair<Integer, Integer> codecProfileAndLevel = MediaCodecUtil.getCodecProfileAndLevel(format);
     if (codecProfileAndLevel == null) {
       // If we don't know any better, we assume that the profile and level are supported.
@@ -325,7 +335,7 @@ public final class MediaCodecInfo {
 
     for (CodecProfileLevel profileLevel : profileLevels) {
       if (profileLevel.profile == profile
-          && profileLevel.level >= level
+          && (profileLevel.level >= level || !checkPerformanceCapabilities)
           && !needsProfileExcludedWorkaround(mimeType, profile)) {
         return true;
       }
@@ -845,7 +855,7 @@ public final class MediaCodecInfo {
    * @param name The name of the codec.
    * @return Whether to enable the workaround.
    */
-  private static final boolean needsRotatedVerticalResolutionWorkaround(String name) {
+  private static boolean needsRotatedVerticalResolutionWorkaround(String name) {
     if ("OMX.MTK.VIDEO.DECODER.HEVC".equals(name) && "mcv5a".equals(Util.DEVICE)) {
       // See https://github.com/google/ExoPlayer/issues/6612.
       return false;
@@ -862,6 +872,17 @@ public final class MediaCodecInfo {
     return MimeTypes.VIDEO_H265.equals(mimeType)
         && CodecProfileLevel.HEVCProfileMain10 == profile
         && ("sailfish".equals(Util.DEVICE) || "marlin".equals(Util.DEVICE));
+  }
+
+  /** Whether the device is known to have wrong {@link PerformancePoint} declarations. */
+  private static boolean needsIgnorePerformancePointsWorkaround() {
+    // See https://github.com/google/ExoPlayer/issues/10898 and [internal ref: b/267324685].
+    return /* Chromecast with Google TV */ Util.DEVICE.equals("sabrina")
+        || Util.DEVICE.equals("boreal")
+        /* Lenovo Tablet M10 FHD Plus */
+        || Util.MODEL.startsWith("Lenovo TB-X605")
+        || Util.MODEL.startsWith("Lenovo TB-X606")
+        || Util.MODEL.startsWith("Lenovo TB-X616");
   }
 
   /** Possible outcomes of evaluating PerformancePoint coverage */
@@ -888,7 +909,9 @@ public final class MediaCodecInfo {
         VideoCapabilities videoCapabilities, int width, int height, double frameRate) {
       List<PerformancePoint> performancePointList =
           videoCapabilities.getSupportedPerformancePoints();
-      if (performancePointList == null || performancePointList.isEmpty()) {
+      if (performancePointList == null
+          || performancePointList.isEmpty()
+          || needsIgnorePerformancePointsWorkaround()) {
         return COVERAGE_RESULT_NO_EMPTY_LIST;
       }
 

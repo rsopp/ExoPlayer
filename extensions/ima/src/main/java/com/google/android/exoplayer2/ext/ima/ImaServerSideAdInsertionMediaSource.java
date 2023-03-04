@@ -30,15 +30,14 @@ import static com.google.android.exoplayer2.util.Assertions.checkNotNull;
 import static com.google.android.exoplayer2.util.Assertions.checkState;
 import static com.google.android.exoplayer2.util.Util.msToUs;
 import static com.google.android.exoplayer2.util.Util.usToMs;
-import static java.lang.annotation.ElementType.TYPE_USE;
 
 import android.content.Context;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.Looper;
 import android.util.Pair;
 import android.view.ViewGroup;
-import androidx.annotation.IntDef;
 import androidx.annotation.MainThread;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
@@ -68,6 +67,7 @@ import com.google.android.exoplayer2.MediaItem;
 import com.google.android.exoplayer2.Player;
 import com.google.android.exoplayer2.Timeline;
 import com.google.android.exoplayer2.drm.DrmSessionManagerProvider;
+import com.google.android.exoplayer2.ext.ima.ImaUtil.ServerSideAdInsertionConfiguration;
 import com.google.android.exoplayer2.metadata.Metadata;
 import com.google.android.exoplayer2.metadata.emsg.EventMessage;
 import com.google.android.exoplayer2.metadata.id3.TextInformationFrame;
@@ -96,10 +96,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import java.io.IOException;
-import java.lang.annotation.Documented;
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
-import java.lang.annotation.Target;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -196,6 +192,7 @@ public final class ImaServerSideAdInsertionMediaSource extends CompositeMediaSou
       @Nullable private AdErrorEvent.AdErrorListener adErrorListener;
       private State state;
       private ImmutableList<CompanionAdSlot> companionAdSlots;
+      private boolean focusSkipButtonWhenAvailable;
 
       /**
        * Creates an instance.
@@ -208,12 +205,15 @@ public final class ImaServerSideAdInsertionMediaSource extends CompositeMediaSou
         this.adViewProvider = adViewProvider;
         companionAdSlots = ImmutableList.of();
         state = new State(ImmutableMap.of());
+        focusSkipButtonWhenAvailable = true;
       }
 
       /**
        * Sets the IMA SDK settings.
        *
-       * <p>If this method is not called the default settings will be used.
+       * <p>If this method is not called, the {@linkplain ImaSdkFactory#createImaSdkSettings()
+       * default settings} will be used with the language set to {@linkplain
+       * Util#getSystemLanguageCodes() the preferred system language}.
        *
        * @param imaSdkSettings The {@link ImaSdkSettings}.
        * @return This builder, for convenience.
@@ -277,6 +277,22 @@ public final class ImaServerSideAdInsertionMediaSource extends CompositeMediaSou
         return this;
       }
 
+      /**
+       * Sets whether to focus the skip button (when available) on Android TV devices. The default
+       * setting is {@code true}.
+       *
+       * @param focusSkipButtonWhenAvailable Whether to focus the skip button (when available) on
+       *     Android TV devices.
+       * @return This builder, for convenience.
+       * @see AdsRenderingSettings#setFocusSkipButtonWhenAvailable(boolean)
+       */
+      @CanIgnoreReturnValue
+      public AdsLoader.Builder setFocusSkipButtonWhenAvailable(
+          boolean focusSkipButtonWhenAvailable) {
+        this.focusSkipButtonWhenAvailable = focusSkipButtonWhenAvailable;
+        return this;
+      }
+
       /** Returns a new {@link AdsLoader}. */
       public AdsLoader build() {
         @Nullable ImaSdkSettings imaSdkSettings = this.imaSdkSettings;
@@ -284,13 +300,14 @@ public final class ImaServerSideAdInsertionMediaSource extends CompositeMediaSou
           imaSdkSettings = ImaSdkFactory.getInstance().createImaSdkSettings();
           imaSdkSettings.setLanguage(Util.getSystemLanguageCodes()[0]);
         }
-        ImaUtil.ServerSideAdInsertionConfiguration configuration =
-            new ImaUtil.ServerSideAdInsertionConfiguration(
+        ServerSideAdInsertionConfiguration configuration =
+            new ServerSideAdInsertionConfiguration(
                 adViewProvider,
                 imaSdkSettings,
                 adEventListener,
                 adErrorListener,
                 companionAdSlots,
+                focusSkipButtonWhenAvailable,
                 imaSdkSettings.isDebugMode());
         return new AdsLoader(context, configuration, state);
       }
@@ -325,13 +342,7 @@ public final class ImaServerSideAdInsertionMediaSource extends CompositeMediaSou
 
       // Bundleable implementation.
 
-      @Documented
-      @Retention(RetentionPolicy.SOURCE)
-      @Target(TYPE_USE)
-      @IntDef({FIELD_AD_PLAYBACK_STATES})
-      private @interface FieldNumber {}
-
-      private static final int FIELD_AD_PLAYBACK_STATES = 1;
+      private static final String FIELD_AD_PLAYBACK_STATES = Util.intToStringMaxRadix(1);
 
       @Override
       public Bundle toBundle() {
@@ -340,7 +351,7 @@ public final class ImaServerSideAdInsertionMediaSource extends CompositeMediaSou
         for (Map.Entry<String, AdPlaybackState> entry : adPlaybackStates.entrySet()) {
           adPlaybackStatesBundle.putBundle(entry.getKey(), entry.getValue().toBundle());
         }
-        bundle.putBundle(keyForField(FIELD_AD_PLAYBACK_STATES), adPlaybackStatesBundle);
+        bundle.putBundle(FIELD_AD_PLAYBACK_STATES, adPlaybackStatesBundle);
         return bundle;
       }
 
@@ -351,8 +362,7 @@ public final class ImaServerSideAdInsertionMediaSource extends CompositeMediaSou
         @Nullable
         ImmutableMap.Builder<String, AdPlaybackState> adPlaybackStateMap =
             new ImmutableMap.Builder<>();
-        Bundle adPlaybackStateBundle =
-            checkNotNull(bundle.getBundle(keyForField(FIELD_AD_PLAYBACK_STATES)));
+        Bundle adPlaybackStateBundle = checkNotNull(bundle.getBundle(FIELD_AD_PLAYBACK_STATES));
         for (String key : adPlaybackStateBundle.keySet()) {
           AdPlaybackState adPlaybackState =
               AdPlaybackState.CREATOR.fromBundle(
@@ -362,22 +372,17 @@ public final class ImaServerSideAdInsertionMediaSource extends CompositeMediaSou
         }
         return new State(adPlaybackStateMap.buildOrThrow());
       }
-
-      private static String keyForField(@FieldNumber int field) {
-        return Integer.toString(field, Character.MAX_RADIX);
-      }
     }
 
-    private final ImaUtil.ServerSideAdInsertionConfiguration configuration;
+    private final ServerSideAdInsertionConfiguration configuration;
     private final Context context;
-    private final Map<ImaServerSideAdInsertionMediaSource, MediaSourceResourceHolder>
-        mediaSourceResources;
+    private final Map<String, MediaSourceResourceHolder> mediaSourceResources;
     private final Map<String, AdPlaybackState> adPlaybackStateMap;
 
     @Nullable private Player player;
 
     private AdsLoader(
-        Context context, ImaUtil.ServerSideAdInsertionConfiguration configuration, State state) {
+        Context context, ServerSideAdInsertionConfiguration configuration, State state) {
       this.context = context.getApplicationContext();
       this.configuration = configuration;
       mediaSourceResources = new HashMap<>();
@@ -395,6 +400,35 @@ public final class ImaServerSideAdInsertionMediaSource extends CompositeMediaSou
      */
     public void setPlayer(Player player) {
       this.player = player;
+    }
+
+    /**
+     * Puts the focus on the skip button, if a skip button is present and an ad is playing.
+     *
+     * @see StreamManager#focus()
+     */
+    public void focusSkipButton() {
+      if (player == null) {
+        return;
+      }
+      if (player.getPlaybackState() != Player.STATE_IDLE
+          && player.getPlaybackState() != Player.STATE_ENDED
+          && player.getMediaItemCount() > 0) {
+        int currentPeriodIndex = player.getCurrentPeriodIndex();
+        Object adsId =
+            player
+                .getCurrentTimeline()
+                .getPeriod(currentPeriodIndex, new Timeline.Period())
+                .getAdsId();
+        if (adsId instanceof String) {
+          MediaSourceResourceHolder mediaSourceResourceHolder = mediaSourceResources.get(adsId);
+          if (mediaSourceResourceHolder != null
+              && mediaSourceResourceHolder.imaServerSideAdInsertionMediaSource.streamManager
+                  != null) {
+            mediaSourceResourceHolder.imaServerSideAdInsertionMediaSource.streamManager.focus();
+          }
+        }
+      }
     }
 
     /**
@@ -423,7 +457,7 @@ public final class ImaServerSideAdInsertionMediaSource extends CompositeMediaSou
         StreamPlayer streamPlayer,
         com.google.ads.interactivemedia.v3.api.AdsLoader adsLoader) {
       mediaSourceResources.put(
-          mediaSource, new MediaSourceResourceHolder(mediaSource, streamPlayer, adsLoader));
+          mediaSource.adsId, new MediaSourceResourceHolder(mediaSource, streamPlayer, adsLoader));
     }
 
     private AdPlaybackState getAdPlaybackState(String adsId) {
@@ -493,7 +527,8 @@ public final class ImaServerSideAdInsertionMediaSource extends CompositeMediaSou
     this.applicationAdEventListener = applicationAdEventListener;
     this.applicationAdErrorListener = applicationAdErrorListener;
     componentListener = new ComponentListener();
-    mainHandler = Util.createHandlerForCurrentLooper();
+    Assertions.checkArgument(player.getApplicationLooper() == Looper.getMainLooper());
+    mainHandler = new Handler(Looper.getMainLooper());
     Uri streamRequestUri = checkNotNull(mediaItem.localConfiguration).uri;
     isLiveStream = ImaServerSideAdInsertionUriBuilder.isLiveStream(streamRequestUri);
     adsId = ImaServerSideAdInsertionUriBuilder.getAdsId(streamRequestUri);
@@ -517,10 +552,10 @@ public final class ImaServerSideAdInsertionMediaSource extends CompositeMediaSou
       StreamManagerLoadable streamManagerLoadable =
           new StreamManagerLoadable(
               sdkAdsLoader,
+              /* imaServerSideAdInsertionMediaSource= */ this,
               streamRequest,
               streamPlayer,
-              applicationAdErrorListener,
-              loadVideoTimeoutMs);
+              applicationAdErrorListener);
       loader.startLoading(
           streamManagerLoadable,
           new StreamManagerLoadableCallback(),
@@ -570,8 +605,11 @@ public final class ImaServerSideAdInsertionMediaSource extends CompositeMediaSou
     super.releaseSourceInternal();
     if (loader != null) {
       loader.release();
-      player.removeListener(componentListener);
-      mainHandler.post(() -> setStreamManager(/* streamManager= */ null));
+      mainHandler.post(
+          () -> {
+            player.removeListener(componentListener);
+            setStreamManager(/* streamManager= */ null);
+          });
       loader = null;
     }
   }
@@ -592,7 +630,6 @@ public final class ImaServerSideAdInsertionMediaSource extends CompositeMediaSou
       }
       this.streamManager.removeAdEventListener(componentListener);
       this.streamManager.destroy();
-      this.streamManager = null;
     }
     this.streamManager = streamManager;
     if (streamManager != null) {
@@ -603,6 +640,12 @@ public final class ImaServerSideAdInsertionMediaSource extends CompositeMediaSou
       if (applicationAdErrorListener != null) {
         streamManager.addAdErrorListener(applicationAdErrorListener);
       }
+      AdsRenderingSettings adsRenderingSettings =
+          ImaSdkFactory.getInstance().createAdsRenderingSettings();
+      adsRenderingSettings.setLoadVideoTimeout(loadVideoTimeoutMs);
+      adsRenderingSettings.setFocusSkipButtonWhenAvailable(
+          adsLoader.configuration.focusSkipButtonWhenAvailable);
+      streamManager.init(adsRenderingSettings);
     }
   }
 
@@ -811,7 +854,7 @@ public final class ImaServerSideAdInsertionMediaSource extends CompositeMediaSou
         if (entry instanceof TextInformationFrame) {
           TextInformationFrame textFrame = (TextInformationFrame) entry;
           if ("TXXX".equals(textFrame.id)) {
-            streamPlayer.triggerUserTextReceived(textFrame.value);
+            streamPlayer.triggerUserTextReceived(textFrame.values.get(0));
           }
         } else if (entry instanceof EventMessage) {
           EventMessage eventMessage = (EventMessage) entry;
@@ -911,7 +954,6 @@ public final class ImaServerSideAdInsertionMediaSource extends CompositeMediaSou
     @Override
     public void onLoadCompleted(
         StreamManagerLoadable loadable, long elapsedRealtimeMs, long loadDurationMs) {
-      mainHandler.post(() -> setStreamManager(checkNotNull(loadable.getStreamManager())));
       setContentUri(checkNotNull(loadable.getContentUri()));
     }
 
@@ -942,13 +984,12 @@ public final class ImaServerSideAdInsertionMediaSource extends CompositeMediaSou
       implements Loadable, AdsLoadedListener, AdErrorListener {
 
     private final com.google.ads.interactivemedia.v3.api.AdsLoader adsLoader;
+    private final ImaServerSideAdInsertionMediaSource imaServerSideAdInsertionMediaSource;
     private final StreamRequest request;
     private final StreamPlayer streamPlayer;
     @Nullable private final AdErrorListener adErrorListener;
-    private final int loadVideoTimeoutMs;
     private final ConditionVariable conditionVariable;
 
-    @Nullable private volatile StreamManager streamManager;
     @Nullable private volatile Uri contentUri;
     private volatile boolean cancelled;
     private volatile boolean error;
@@ -958,15 +999,15 @@ public final class ImaServerSideAdInsertionMediaSource extends CompositeMediaSou
     /** Creates an instance. */
     private StreamManagerLoadable(
         com.google.ads.interactivemedia.v3.api.AdsLoader adsLoader,
+        ImaServerSideAdInsertionMediaSource imaServerSideAdInsertionMediaSource,
         StreamRequest request,
         StreamPlayer streamPlayer,
-        @Nullable AdErrorListener adErrorListener,
-        int loadVideoTimeoutMs) {
+        @Nullable AdErrorListener adErrorListener) {
       this.adsLoader = adsLoader;
+      this.imaServerSideAdInsertionMediaSource = imaServerSideAdInsertionMediaSource;
       this.request = request;
       this.streamPlayer = streamPlayer;
       this.adErrorListener = adErrorListener;
-      this.loadVideoTimeoutMs = loadVideoTimeoutMs;
       conditionVariable = new ConditionVariable();
       errorCode = -1;
     }
@@ -975,12 +1016,6 @@ public final class ImaServerSideAdInsertionMediaSource extends CompositeMediaSou
     @Nullable
     public Uri getContentUri() {
       return contentUri;
-    }
-
-    /** Returns the stream manager or null if not yet loaded. */
-    @Nullable
-    public StreamManager getStreamManager() {
-      return streamManager;
     }
 
     // Implement Loadable.
@@ -1036,12 +1071,7 @@ public final class ImaServerSideAdInsertionMediaSource extends CompositeMediaSou
         conditionVariable.open();
         return;
       }
-      AdsRenderingSettings adsRenderingSettings =
-          ImaSdkFactory.getInstance().createAdsRenderingSettings();
-      adsRenderingSettings.setLoadVideoTimeout(loadVideoTimeoutMs);
-      // After initialization completed the streamUri will be reported to the streamPlayer.
-      streamManager.init(adsRenderingSettings);
-      this.streamManager = streamManager;
+      imaServerSideAdInsertionMediaSource.setStreamManager(streamManager);
     }
 
     // AdErrorEvent.AdErrorListener implementation.
@@ -1271,7 +1301,7 @@ public final class ImaServerSideAdInsertionMediaSource extends CompositeMediaSou
 
   private static StreamDisplayContainer createStreamDisplayContainer(
       ImaSdkFactory imaSdkFactory,
-      ImaUtil.ServerSideAdInsertionConfiguration config,
+      ServerSideAdInsertionConfiguration config,
       StreamPlayer streamPlayer) {
     StreamDisplayContainer container =
         ImaSdkFactory.createStreamDisplayContainer(
